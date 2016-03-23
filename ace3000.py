@@ -6,9 +6,28 @@ import os
 import re
 import logging
 from logging.handlers import RotatingFileHandler
+import telnetlib
+
+
+
+
+
+
+FHEM_HOST = "localhost" #hostname of FHEM
+FHEM_PORT = 7072 #port of FHEM
+FHEM_DEVICE = "PowerMeter"
+FHEM_READING_kWh = "kWhTotal"
+FHEM_READING_power = "currentPowerUsage"
+
+DEVICE = "/dev/ttyUSB_ACE3000" # where the power sensor is conneted to
+
+
+
+
+
 
 def main():
-    device = "/dev/ttyUSB0"
+    device = DEVICE
     CurrentPowerInterval = 300 #in seconds (this value must be smaller than kWhInterval
     kWhInterval = 3600 # in seconds 
 
@@ -20,12 +39,12 @@ def main():
         timeNextHour = time.time() +  (kWhInterval - (time.time() % kWhInterval))
         s0(device, CurrentPowerLogger, CurrentPowerInterval, timeNextHour) #measurement every 10s
         d0(device, kWhLogger) # will be called every 3600s
-    
-    
-    
-    
-    #s0(kWhLogger)
-    #d0(CurrentPowerLogger)
+
+
+
+def setFHEMReading(reading, value):
+    tn = telnetlib.Telnet(FHEM_HOST, FHEM_PORT)
+    tn.write("setreading " + FHEM_DEVICE + " " + reading + " " + str(value) + ";quit\n")
 
 
 
@@ -44,6 +63,8 @@ def createLogger(name, path):
     
     return logger
  
+ 
+#Reads the current MeterReading from the PowerMeter by use of D0 protocol
 def d0(device, Logger):
     # configure the serial connections (the parameters differs on the device you are connecting to)
     ser = serial.Serial(
@@ -54,7 +75,7 @@ def d0(device, Logger):
                         bytesize=serial.SEVENBITS,
                         timeout=3)
 
-    ser.open()
+    #ser.open()
     ser.flushInput()
 
     
@@ -71,8 +92,9 @@ def d0(device, Logger):
     match = re.search("1.8.0\(0*([1-9][0-9\.]+)", ace3000str)
     if match:
         meterReading = match.group(1)
-        print meterReading
-        Logger.info(meterReading)
+        print meterReading #print Meter Reading to console
+        Logger.info(meterReading) #write Meter Reading into logfile
+        setFHEMReading(FHEM_READING_kWh, meterReading) #send value directly to FHEM
       
     #request stop
     ser.write("/?!")
@@ -94,7 +116,7 @@ def s0(device, Logger, waittime, endtime):
     #stty -F /dev/ttyUSB0 0:4:cbd:0:3:1c:7f:15:4:1:1:0:11:13:1a:0:12:f:17:16:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0
     os.system("stty time 1 min 1 -icanon < " + device)
     ser = serial.Serial(port=device, timeout=None)
-    ser.open()
+    #ser.open()
     ser.flushInput()
     
     oldtime = 0
@@ -111,8 +133,9 @@ def s0(device, Logger, waittime, endtime):
             deltatime = newtime - oldtime
             #1000 Pulse => 1kWh
             power = 3600 / deltatime
-            print str(index) + "\t" +str(int(power))
-            Logger.info(int(power))         
+            print str(index) + "\t" +str(int(power)) 
+            Logger.info(int(power)) #write value to logfile
+            setFHEMReading(FHEM_READING_power, int(power)) #send value directly to FHEM
             
             oldtime = 0
             newtime = 0
